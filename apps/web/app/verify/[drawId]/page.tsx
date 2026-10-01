@@ -45,23 +45,23 @@ export default function VerifyPage({
       <div className="space-y-2">
         <h1 className="text-3xl">Verify draw {draw.id}</h1>
         <p className="text-muted">
-          {draw.status === "open" ? "Open window, mocked entrants." : "Settled draw, mocked list."} Root is SHA-256 over
-          the sorted wallets.
+          {draw.status === "open" ? "Open window, mocked entries." : "Settled draw, mocked list."} Each leaf is SHA-256
+          of wallet:entryIndex.
         </p>
       </div>
 
       <section className="space-y-2 border border-line bg-panel p-4">
         <p className="text-xs uppercase tracking-wider text-muted">Merkle root</p>
         <p className="break-all font-mono text-sm">{tree.root}</p>
-        <p className="text-sm text-muted">{tree.leaves.length} entrants</p>
+        <p className="text-sm text-muted">{tree.leaves.length} entries</p>
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-lg">Entrants</h2>
+        <h2 className="text-lg">Entries</h2>
         <ol className="space-y-1 font-mono text-xs">
           {tree.leaves.map((leaf) => (
-            <li key={leaf.wallet}>
-              {leaf.index}. {leaf.wallet}
+            <li key={`${leaf.wallet}:${leaf.entryIndex}`}>
+              {leaf.index}. {leaf.wallet} #{leaf.entryIndex}
             </li>
           ))}
         </ol>
@@ -69,7 +69,7 @@ export default function VerifyPage({
 
       <section className="space-y-3">
         <h2 className="text-lg">Winner index</h2>
-        <p className="text-sm text-muted">index = randomness mod entrant count</p>
+        <p className="text-sm text-muted">index = randomness mod entry count</p>
         <form method="get" className="flex flex-col gap-3 sm:flex-row">
           <input
             name="randomness"

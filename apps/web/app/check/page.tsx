@@ -42,7 +42,9 @@ export default function CheckPage({
         <section className="space-y-4 border border-line bg-panel p-4">
           <p className="text-sm text-muted">{checked.known ? "Fixture" : "Unknown input, fail closed"}</p>
           <p className={checked.result.eligible ? "text-good" : "text-bad"}>
-            {checked.result.eligible ? "Eligible" : "Not eligible"}
+            {checked.result.eligible
+              ? `Eligible — ${checked.result.entryCount} ${checked.result.entryCount === 1 ? "entry" : "entries"}`
+              : "Not eligible"}
             {checked.result.failReason !== null ? ` — ${FAIL_COPY[checked.result.failReason]}` : ""}
           </p>
           <ul className="space-y-2">

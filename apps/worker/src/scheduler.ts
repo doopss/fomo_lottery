@@ -17,12 +17,12 @@ type CancelTimer = () => void;
 
 /**
  * Fixed-length windows aligned to the Unix epoch.
- * A 6-hour setting yields [00:00, 06:00), [06:00, 12:00), and so on, in UTC.
+ * A 1-hour setting yields [00:00, 01:00), [01:00, 02:00), and so on, in UTC.
  * `window_end` in this stub is the exclusive boundary instant: close fires then,
  * and the next window opens at the same instant.
  */
 export function readWindowHours(raw: string | undefined): number {
-  const value = raw ?? "6";
+  const value = raw ?? "1";
   if (!/^[1-9]\d*$/.test(value)) {
     throw new Error("DRAW_WINDOW_HOURS must be a positive integer");
   }

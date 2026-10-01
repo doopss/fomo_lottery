@@ -6,10 +6,11 @@ import { createHash } from "node:crypto";
  * Hash: SHA-256 via node:crypto. Solana's native hash is SHA-256, so the M4
  * program can verify the same bytes without a keccak dependency.
  *
- * Leaf preimage: UTF-8 bytes of the base58 wallet string, sorted
+ * Leaf preimage: UTF-8 bytes of `${wallet}:${entryIndex}`. Wallets are sorted
  * lexicographically (base58 is ASCII, so UTF-16 code-unit order matches byte
- * order). M4 must hash that same string. Raw 32-byte pubkeys would need a
- * base58 decoder, which this repo does not depend on.
+ * order), and a wallet's entries are numbered from 0. M4 must hash that same
+ * string. One wallet can hold several entries; the leaves are distinct.
+ * Raw 32-byte pubkeys would need a base58 decoder, which this repo does not depend on.
  *
  * Internal nodes: SHA-256(left || right) in tree order. Pairs are not sorted.
  * An odd level duplicates the last node, so the last hash is combined with itself.
@@ -23,10 +24,21 @@ export interface MerkleProof {
   directions: Array<"left" | "right">;
 }
 
+export interface MerkleEntrant {
+  wallet: string;
+  entryCount: number;
+}
+
 export interface MerkleLeaf {
   wallet: string;
+  entryIndex: number;
+  /** Position of this leaf in the sorted tree. */
   index: number;
   leaf: string;
+}
+
+export function entryLeafPreimage(wallet: string, entryIndex: number): string {
+  return `${wallet}:${entryIndex}`;
 }
 
 export interface MerkleTreeResult {
@@ -44,27 +56,40 @@ interface WorkingNode {
   leafIndexes: number[];
 }
 
-export function buildMerkleTree(wallets: readonly string[]): MerkleTreeResult {
-  if (wallets.length === 0) {
+export function buildMerkleTree(entrants: readonly MerkleEntrant[]): MerkleTreeResult {
+  if (entrants.length === 0) {
     throw new Error("Cannot build a Merkle tree with zero entrants");
   }
 
-  const sorted = [...wallets].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  for (let i = 1; i < sorted.length; i += 1) {
-    if (sorted[i] === sorted[i - 1]) {
+  const sorted = [...entrants].sort((a, b) => (a.wallet < b.wallet ? -1 : a.wallet > b.wallet ? 1 : 0));
+  for (let i = 0; i < sorted.length; i += 1) {
+    const entrant = sorted[i];
+    if (entrant === undefined) {
+      throw new Error("missing entrant");
+    }
+    if (!Number.isInteger(entrant.entryCount) || entrant.entryCount < 1) {
+      throw new Error("entryCount must be a positive integer");
+    }
+    if (i > 0 && entrant.wallet === sorted[i - 1]?.wallet) {
       throw new Error("Duplicate wallet in entrant list");
     }
   }
 
-  const leaves: MerkleLeaf[] = sorted.map((wallet, index) => ({
-    wallet,
-    index,
-    leaf: sha256(Buffer.from(wallet, "utf8")).toString("hex"),
-  }));
+  const leaves: MerkleLeaf[] = [];
+  for (const entrant of sorted) {
+    for (let entryIndex = 0; entryIndex < entrant.entryCount; entryIndex += 1) {
+      leaves.push({
+        wallet: entrant.wallet,
+        entryIndex,
+        index: leaves.length,
+        leaf: sha256(Buffer.from(entryLeafPreimage(entrant.wallet, entryIndex), "utf8")).toString("hex"),
+      });
+    }
+  }
 
   const proofs: Record<string, MerkleProof> = {};
   for (const leaf of leaves) {
-    proofs[leaf.wallet] = { leaf: leaf.leaf, siblings: [], directions: [] };
+    proofs[entryLeafPreimage(leaf.wallet, leaf.entryIndex)] = { leaf: leaf.leaf, siblings: [], directions: [] };
   }
 
   let level: WorkingNode[] = leaves.map((leaf, index) => ({
@@ -86,9 +111,9 @@ export function buildMerkleTree(wallets: readonly string[]): MerkleTreeResult {
       }
 
       for (const leafIndex of left.leafIndexes) {
-        const wallet = sorted[leafIndex];
-        const proof = wallet === undefined ? undefined : proofs[wallet];
-        if (wallet === undefined || proof === undefined) {
+        const leaf = leaves[leafIndex];
+        const proof = leaf === undefined ? undefined : proofs[entryLeafPreimage(leaf.wallet, leaf.entryIndex)];
+        if (leaf === undefined || proof === undefined) {
           throw new Error("missing merkle proof");
         }
         proof.siblings.push(right.hash.toString("hex"));
@@ -96,9 +121,9 @@ export function buildMerkleTree(wallets: readonly string[]): MerkleTreeResult {
       }
       if (!duplicated) {
         for (const leafIndex of right.leafIndexes) {
-          const wallet = sorted[leafIndex];
-          const proof = wallet === undefined ? undefined : proofs[wallet];
-          if (wallet === undefined || proof === undefined) {
+          const leaf = leaves[leafIndex];
+          const proof = leaf === undefined ? undefined : proofs[entryLeafPreimage(leaf.wallet, leaf.entryIndex)];
+          if (leaf === undefined || proof === undefined) {
             throw new Error("missing merkle proof");
           }
           proof.siblings.push(left.hash.toString("hex"));
@@ -122,11 +147,14 @@ export function buildMerkleTree(wallets: readonly string[]): MerkleTreeResult {
   return { root: rootNode.hash.toString("hex"), leaves, proofs };
 }
 
-export function verifyProof(wallet: string, proof: MerkleProof, root: string): boolean {
+export function verifyProof(wallet: string, entryIndex: number, proof: MerkleProof, root: string): boolean {
+  if (!Number.isInteger(entryIndex) || entryIndex < 0) {
+    return false;
+  }
   if (proof.siblings.length !== proof.directions.length) {
     return false;
   }
-  let hash = sha256(Buffer.from(wallet, "utf8"));
+  let hash = sha256(Buffer.from(entryLeafPreimage(wallet, entryIndex), "utf8"));
   if (hash.toString("hex") !== proof.leaf) {
     return false;
   }

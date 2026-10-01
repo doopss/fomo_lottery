@@ -23,6 +23,7 @@ function passingBuyer(overrides: Partial<EligibilityBuyer> = {}): EligibilityBuy
     thesis: { text: "x", postedAt: new Date("2026-09-29T00:00:00.000Z") },
     swaps: [buy(500, "2026-09-30T13:00:00.000Z")],
     balanceRaw: 1n,
+    holdingValueUsdCents: 500,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -31,9 +32,63 @@ function passingBuyer(overrides: Partial<EligibilityBuyer> = {}): EligibilityBuy
 }
 
 describe("evaluateEligibility", () => {
-  it("accepts a brand-new fomo user with a one-character thesis and no extra history", () => {
+  it("gives one entry to a new holder with a thesis and no window buy", () => {
+    const result = evaluateEligibility(passingBuyer({ swaps: [] }), window);
+    expect(result).toEqual({
+      eligible: true,
+      entryCount: 1,
+      bonusApplied: false,
+      failReason: null,
+      flags: [],
+    });
+  });
+
+  it("adds two bonus entries for a $5 buy in the window", () => {
     const result = evaluateEligibility(passingBuyer(), window);
-    expect(result).toEqual({ eligible: true, failReason: null, flags: [] });
+    expect(result.eligible).toBe(true);
+    expect(result.entryCount).toBe(3);
+    expect(result.bonusApplied).toBe(true);
+  });
+
+  it("does not award the bonus at 499 cents, and does at exactly 500", () => {
+    const under = evaluateEligibility(passingBuyer({ swaps: [buy(499, "2026-09-30T13:00:00.000Z")] }), window);
+    expect(under.entryCount).toBe(1);
+    expect(under.bonusApplied).toBe(false);
+
+    const exact = evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T13:00:00.000Z")] }), window);
+    expect(exact.entryCount).toBe(3);
+  });
+
+  it("sums in-window buys, ignores sells, and counts the window boundaries", () => {
+    const summed = evaluateEligibility(
+      passingBuyer({
+        swaps: [
+          buy(200, "2026-09-30T13:00:00.000Z"),
+          buy(300, "2026-09-30T14:00:00.000Z"),
+          { side: "sell", usdValueCents: 10_000, blockTime: new Date("2026-09-30T15:00:00.000Z") },
+        ],
+      }),
+      window,
+    );
+    expect(summed.entryCount).toBe(3);
+
+    const outside = evaluateEligibility(passingBuyer({ swaps: [buy(5_000, "2026-09-30T11:59:59.000Z")] }), window);
+    expect(outside.entryCount).toBe(1);
+
+    const atStart = evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T12:00:00.000Z")] }), window);
+    const atEnd = evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T18:00:00.000Z")] }), window);
+    expect(atStart.bonusApplied).toBe(true);
+    expect(atEnd.bonusApplied).toBe(true);
+  });
+
+  it("does not let a window buy qualify a wallet that fails the base entry", () => {
+    const underHold = evaluateEligibility(
+      passingBuyer({ holdingValueUsdCents: 499, swaps: [buy(5_000, "2026-09-30T13:00:00.000Z")] }),
+      window,
+    );
+    expect(underHold.eligible).toBe(false);
+    expect(underHold.entryCount).toBe(0);
+    expect(underHold.failReason).toBe("below_min_hold");
   });
 
   it("fails closed when the handle is missing", () => {
@@ -42,66 +97,9 @@ describe("evaluateEligibility", () => {
   });
 
   it("fails when the fomo handle is already claimed", () => {
-    expect(evaluateEligibility(passingBuyer({ duplicateFomoAccount: true }), window).failReason).toBe(
-      "duplicate_fomo_account",
-    );
-  });
-
-  it("fails when there is no in-window buy", () => {
-    expect(evaluateEligibility(passingBuyer({ swaps: [] }), window).failReason).toBe("no_buy_in_window");
-    expect(
-      evaluateEligibility(
-        passingBuyer({
-          swaps: [{ side: "sell", usdValueCents: 5_000, blockTime: new Date("2026-09-30T13:00:00.000Z") }],
-        }),
-        window,
-      ).failReason,
-    ).toBe("no_buy_in_window");
-    expect(
-      evaluateEligibility(passingBuyer({ swaps: [buy(5_000, "2026-09-30T11:59:59.000Z")] }), window).failReason,
-    ).toBe("no_buy_in_window");
-    expect(
-      evaluateEligibility(passingBuyer({ swaps: [buy(5_000, "2026-09-30T18:00:00.001Z")] }), window).failReason,
-    ).toBe("no_buy_in_window");
-  });
-
-  it("treats window start and end as inclusive", () => {
-    expect(
-      evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T12:00:00.000Z")] }), window).eligible,
-    ).toBe(true);
-    expect(
-      evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T18:00:00.000Z")] }), window).eligible,
-    ).toBe(true);
-  });
-
-  it("fails below $5 and passes at exactly 500 cents", () => {
-    expect(evaluateEligibility(passingBuyer({ swaps: [buy(499, "2026-09-30T13:00:00.000Z")] }), window).failReason).toBe(
-      "below_min_buy",
-    );
-    expect(evaluateEligibility(passingBuyer({ swaps: [buy(500, "2026-09-30T13:00:00.000Z")] }), window).eligible).toBe(
-      true,
-    );
-  });
-
-  it("sums in-window buys and does not subtract sells", () => {
-    const summed = evaluateEligibility(
-      passingBuyer({
-        swaps: [buy(200, "2026-09-30T13:00:00.000Z"), buy(300, "2026-09-30T14:00:00.000Z")],
-      }),
-      window,
-    );
-    expect(summed.eligible).toBe(true);
-
-    const sold = evaluateEligibility(
-      passingBuyer({
-        swaps: [
-          buy(500, "2026-09-30T13:00:00.000Z"),
-          { side: "sell", usdValueCents: 500, blockTime: new Date("2026-09-30T15:00:00.000Z") },
-        ],
-      }),
-      window,
-    );
-    expect(sold.eligible).toBe(true);
+    const result = evaluateEligibility(passingBuyer({ duplicateFomoAccount: true }), window);
+    expect(result.failReason).toBe("duplicate_fomo_account");
+    expect(result.entryCount).toBe(0);
   });
 
   it("fails when the thesis is missing, blank, undated, or posted after the window", () => {
@@ -121,30 +119,27 @@ describe("evaluateEligibility", () => {
     ).toBe("no_thesis");
   });
 
-  it("accepts a thesis posted before the window and one posted at window end", () => {
-    expect(evaluateEligibility(passingBuyer(), window).eligible).toBe(true);
+  it("accepts a one-character thesis posted before the window or at window end", () => {
+    expect(evaluateEligibility(passingBuyer({ swaps: [] }), window).eligible).toBe(true);
     expect(
       evaluateEligibility(
-        passingBuyer({ thesis: { text: "x", postedAt: new Date("2026-09-30T18:00:00.000Z") } }),
+        passingBuyer({ swaps: [], thesis: { text: "x", postedAt: new Date("2026-09-30T18:00:00.000Z") } }),
         window,
-      ).eligible,
-    ).toBe(true);
+      ).entryCount,
+    ).toBe(1);
   });
 
-  it("fails when the snapshot balance is not positive", () => {
+  it("fails when the snapshot balance is empty or worth under $5", () => {
     expect(evaluateEligibility(passingBuyer({ balanceRaw: 0n }), window).failReason).toBe("not_holding");
     expect(evaluateEligibility(passingBuyer({ balanceRaw: -1n }), window).failReason).toBe("not_holding");
+    expect(evaluateEligibility(passingBuyer({ holdingValueUsdCents: 499 }), window).failReason).toBe("below_min_hold");
+    expect(evaluateEligibility(passingBuyer({ holdingValueUsdCents: 500, swaps: [] }), window).entryCount).toBe(1);
   });
 
-  it("keeps shared-funding and duplicate-thesis buyers eligible", () => {
-    const shared = evaluateEligibility(passingBuyer({ sharedFundingSource: true }), window);
-    expect(shared).toEqual({ eligible: true, failReason: null, flags: ["shared_funding_source"] });
-
-    const copied = evaluateEligibility(passingBuyer({ duplicateThesis: true }), window);
-    expect(copied).toEqual({ eligible: true, failReason: null, flags: ["duplicate_thesis"] });
-
-    const both = evaluateEligibility(passingBuyer({ sharedFundingSource: true, duplicateThesis: true }), window);
+  it("keeps shared-funding and duplicate-thesis holders eligible", () => {
+    const both = evaluateEligibility(passingBuyer({ sharedFundingSource: true, duplicateThesis: true, swaps: [] }), window);
     expect(both.eligible).toBe(true);
+    expect(both.entryCount).toBe(1);
     expect(both.flags).toEqual(["shared_funding_source", "duplicate_thesis"]);
   });
 
@@ -158,39 +153,37 @@ describe("evaluateEligibility", () => {
   });
 
   it("uses the earliest failing rule", () => {
-    const unresolved = evaluateEligibility(
-      passingBuyer({ fomoHandle: null, duplicateFomoAccount: true, swaps: [], thesis: null, balanceRaw: 0n }),
-      window,
+    expect(
+      evaluateEligibility(
+        passingBuyer({ fomoHandle: null, duplicateFomoAccount: true, thesis: null, balanceRaw: 0n, holdingValueUsdCents: 0 }),
+        window,
+      ).failReason,
+    ).toBe("unresolved_identity");
+    expect(
+      evaluateEligibility(
+        passingBuyer({ duplicateFomoAccount: true, thesis: null, balanceRaw: 0n, holdingValueUsdCents: 0 }),
+        window,
+      ).failReason,
+    ).toBe("duplicate_fomo_account");
+    expect(evaluateEligibility(passingBuyer({ thesis: null, balanceRaw: 0n, holdingValueUsdCents: 0 }), window).failReason).toBe(
+      "no_thesis",
     );
-    expect(unresolved.failReason).toBe("unresolved_identity");
-
-    const duplicate = evaluateEligibility(
-      passingBuyer({ duplicateFomoAccount: true, swaps: [], thesis: null, balanceRaw: 0n }),
-      window,
+    expect(evaluateEligibility(passingBuyer({ balanceRaw: 0n, holdingValueUsdCents: 0 }), window).failReason).toBe(
+      "not_holding",
     );
-    expect(duplicate.failReason).toBe("duplicate_fomo_account");
-
-    const noBuy = evaluateEligibility(passingBuyer({ swaps: [], thesis: null, balanceRaw: 0n }), window);
-    expect(noBuy.failReason).toBe("no_buy_in_window");
-
-    const cheap = evaluateEligibility(
-      passingBuyer({ swaps: [buy(100, "2026-09-30T13:00:00.000Z")], thesis: null, balanceRaw: 0n }),
-      window,
-    );
-    expect(cheap.failReason).toBe("below_min_buy");
-
-    const noThesis = evaluateEligibility(passingBuyer({ thesis: null, balanceRaw: 0n }), window);
-    expect(noThesis.failReason).toBe("no_thesis");
   });
 
-  it("honors a custom minimum and rejects non-integers", () => {
-    const lowBar = evaluateEligibility(passingBuyer({ swaps: [buy(100, "2026-09-30T13:00:00.000Z")] }), window, {
-      minBuyUsdCents: 100,
+  it("honors custom thresholds and rejects non-integers", () => {
+    const custom = evaluateEligibility(passingBuyer({ swaps: [buy(100, "2026-09-30T13:00:00.000Z")], holdingValueUsdCents: 100 }), window, {
+      minHoldUsdCents: 100,
+      minWindowBuyUsdCents: 100,
+      bonusEntries: 1,
     });
-    expect(lowBar.eligible).toBe(true);
+    expect(custom.entryCount).toBe(2);
+
+    expect(() => evaluateEligibility(passingBuyer({ holdingValueUsdCents: 10.5 }), window)).toThrow(/holdingValueUsdCents/);
     expect(() => evaluateEligibility(passingBuyer({ swaps: [buy(10.5, "2026-09-30T13:00:00.000Z")] }), window)).toThrow(
       /usdValueCents/,
     );
-    expect(() => evaluateEligibility(passingBuyer(), window, { minBuyUsdCents: 5.5 })).toThrow(/minBuyUsdCents/);
   });
 });

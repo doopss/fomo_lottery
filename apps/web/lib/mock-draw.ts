@@ -1,23 +1,27 @@
 import {
+  defaultEligibilityConfig,
   evaluateEligibility,
   type DrawWindow,
   type EligibilityBuyer,
   type EligibilityResult,
   type FailReason,
+  type MerkleEntrant,
 } from "@draw/shared";
 
 import { formatCents } from "./format";
 
 export const MOCK_WINDOW: DrawWindow = {
-  start: new Date("2026-10-01T00:00:00.000Z"),
-  end: new Date("2026-10-01T06:00:00.000Z"),
+  start: new Date("2026-10-01T02:00:00.000Z"),
+  end: new Date("2026-10-01T03:00:00.000Z"),
 };
 
 export const MOCK_POT_LAMPORTS = 12_500_000_000n;
 export const MOCK_CLOSE_ISO = MOCK_WINDOW.end.toISOString();
-export const MIN_BUY_USD_CENTS = 500;
+export const MIN_HOLD_USD_CENTS = defaultEligibilityConfig.minHoldUsdCents;
+export const MIN_WINDOW_BUY_USD_CENTS = defaultEligibilityConfig.minWindowBuyUsdCents;
+export const BONUS_ENTRIES = defaultEligibilityConfig.bonusEntries;
 
-const inWindow = "2026-10-01T01:00:00.000Z";
+const inWindow = "2026-10-01T02:30:00.000Z";
 
 export const MOCK_BUYERS: EligibilityBuyer[] = [
   {
@@ -26,6 +30,7 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     thesis: { text: "x", postedAt: new Date("2026-09-29T08:00:00.000Z") },
     swaps: [{ side: "buy", usdValueCents: 500, blockTime: new Date(inWindow) }],
     balanceRaw: 1_000_000n,
+    holdingValueUsdCents: 1_500,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -36,6 +41,7 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     thesis: { text: "buying the draw", postedAt: new Date("2026-09-30T12:30:00.000Z") },
     swaps: [{ side: "buy", usdValueCents: 499, blockTime: new Date(inWindow) }],
     balanceRaw: 2_000_000n,
+    holdingValueUsdCents: 2_000,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -46,6 +52,7 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     thesis: null,
     swaps: [{ side: "buy", usdValueCents: 2_500, blockTime: new Date(inWindow) }],
     balanceRaw: 4_000_000n,
+    holdingValueUsdCents: 4_000,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -56,6 +63,7 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     thesis: { text: "holding through the snapshot", postedAt: new Date("2026-09-28T00:00:00.000Z") },
     swaps: [{ side: "buy", usdValueCents: 800, blockTime: new Date(inWindow) }],
     balanceRaw: 0n,
+    holdingValueUsdCents: 0,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -64,8 +72,9 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     wallet: "Wa11etEee11111111111111111111111111111111",
     fomoHandle: "nova",
     thesis: { text: "second wallet", postedAt: new Date("2026-09-29T00:00:00.000Z") },
-    swaps: [{ side: "buy", usdValueCents: 5_000, blockTime: new Date("2026-10-01T02:00:00.000Z") }],
+    swaps: [{ side: "buy", usdValueCents: 5_000, blockTime: new Date(inWindow) }],
     balanceRaw: 9_000_000n,
+    holdingValueUsdCents: 9_000,
     sharedFundingSource: true,
     duplicateThesis: false,
     duplicateFomoAccount: true,
@@ -76,6 +85,7 @@ export const MOCK_BUYERS: EligibilityBuyer[] = [
     thesis: { text: "same words as someone else", postedAt: new Date("2026-09-30T15:00:00.000Z") },
     swaps: [{ side: "buy", usdValueCents: 1_200, blockTime: new Date(inWindow) }],
     balanceRaw: 3n,
+    holdingValueUsdCents: 1_200,
     sharedFundingSource: true,
     duplicateThesis: true,
     duplicateFomoAccount: false,
@@ -87,18 +97,29 @@ export interface MockDraw {
   status: "open" | "settled";
   windowStart: string;
   windowEnd: string;
-  entrants: string[];
+  entrants: MerkleEntrant[];
   potLamports: bigint;
   winnerWallet: string | null;
   winnerFomo: string | null;
   settleSig: string | null;
 }
 
-export function eligibleWallets(buyers: EligibilityBuyer[] = MOCK_BUYERS, window: DrawWindow = MOCK_WINDOW): string[] {
-  return buyers.filter((buyer) => evaluateEligibility(buyer, window).eligible).map((buyer) => buyer.wallet);
+export function eligibleEntrants(buyers: EligibilityBuyer[] = MOCK_BUYERS, window: DrawWindow = MOCK_WINDOW): MerkleEntrant[] {
+  const entrants: MerkleEntrant[] = [];
+  for (const buyer of buyers) {
+    const result = evaluateEligibility(buyer, window);
+    if (result.eligible) {
+      entrants.push({ wallet: buyer.wallet, entryCount: result.entryCount });
+    }
+  }
+  return entrants;
 }
 
-const openEntrants = eligibleWallets();
+const openEntrants = eligibleEntrants();
+
+function oneEntryEach(wallets: readonly string[]): MerkleEntrant[] {
+  return wallets.map((wallet) => ({ wallet, entryCount: 1 }));
+}
 
 export const MOCK_DRAWS: MockDraw[] = [
   {
@@ -117,11 +138,11 @@ export const MOCK_DRAWS: MockDraw[] = [
     status: "settled",
     windowStart: "2026-09-30T06:00:00.000Z",
     windowEnd: "2026-09-30T12:00:00.000Z",
-    entrants: [
+    entrants: oneEntryEach([
       "Wa11etAaa11111111111111111111111111111111",
       "Wa11etFff11111111111111111111111111111111",
       "Wa11etMmm11111111111111111111111111111111",
-    ],
+    ]),
     potLamports: 8_000_000_000n,
     winnerWallet: "Wa11etFff11111111111111111111111111111111",
     winnerFomo: "umber",
@@ -132,10 +153,10 @@ export const MOCK_DRAWS: MockDraw[] = [
     status: "settled",
     windowStart: "2026-09-30T00:00:00.000Z",
     windowEnd: "2026-09-30T06:00:00.000Z",
-    entrants: [
+    entrants: oneEntryEach([
       "Wa11etAaa11111111111111111111111111111111",
       "Wa11etMmm11111111111111111111111111111111",
-    ],
+    ]),
     potLamports: 3_250_000_000n,
     winnerWallet: "Wa11etAaa11111111111111111111111111111111",
     winnerFomo: "nova",
@@ -160,6 +181,7 @@ export function unknownBuyer(query: string): EligibilityBuyer {
     thesis: null,
     swaps: [],
     balanceRaw: 0n,
+    holdingValueUsdCents: 0,
     sharedFundingSource: false,
     duplicateThesis: false,
     duplicateFomoAccount: false,
@@ -175,10 +197,9 @@ export interface RuleRow {
 export const FAIL_COPY: Record<FailReason, string> = {
   unresolved_identity: "No fomo account resolved for this wallet.",
   duplicate_fomo_account: "This fomo account already has an entry in the window.",
-  no_buy_in_window: "No $DRAW buy through fomo during this window.",
-  below_min_buy: "In-window buys are under $5.",
   no_thesis: "No thesis on $DRAW posted by the snapshot.",
   not_holding: "No $DRAW balance at the snapshot.",
+  below_min_hold: "Holdings are worth under $5 at the snapshot.",
 };
 
 function inWindowBuys(buyer: EligibilityBuyer, window: DrawWindow): number {
@@ -210,19 +231,19 @@ export function ruleRows(buyer: EligibilityBuyer, window: DrawWindow = MOCK_WIND
       detail: handle.length === 0 ? "Unresolved" : buyer.duplicateFomoAccount ? `@${handle} already entered` : `@${handle}`,
     },
     {
-      label: "Bought at least $5 in the window",
-      pass: buyCents >= MIN_BUY_USD_CENTS,
-      detail: buyCents === 0 ? "No in-window buy" : formatCents(buyCents),
-    },
-    {
       label: "Thesis on $DRAW",
       pass: thesisOk,
       detail: thesis !== null && thesisOk ? thesis.text : "Missing",
     },
     {
-      label: "Still holding at snapshot",
-      pass: buyer.balanceRaw > 0n,
-      detail: buyer.balanceRaw > 0n ? `${buyer.balanceRaw.toString()} base units` : "Zero balance",
+      label: "Holding at least $5",
+      pass: buyer.balanceRaw > 0n && buyer.holdingValueUsdCents >= MIN_HOLD_USD_CENTS,
+      detail: buyer.balanceRaw <= 0n ? "Zero balance" : formatCents(buyer.holdingValueUsdCents),
+    },
+    {
+      label: "Window buy bonus",
+      pass: buyCents >= MIN_WINDOW_BUY_USD_CENTS,
+      detail: buyCents >= MIN_WINDOW_BUY_USD_CENTS ? `+${BONUS_ENTRIES} entries` : buyCents === 0 ? "No in-window buy" : formatCents(buyCents),
     },
   ];
 }
@@ -232,7 +253,7 @@ export function checkQuery(query: string): { buyer: EligibilityBuyer; result: El
   const buyer = knownBuyer ?? unknownBuyer(query);
   return {
     buyer,
-    result: evaluateEligibility(buyer, MOCK_WINDOW, { minBuyUsdCents: MIN_BUY_USD_CENTS }),
+    result: evaluateEligibility(buyer, MOCK_WINDOW),
     known: knownBuyer !== undefined,
   };
 }

@@ -6,7 +6,7 @@ import { MOCK_CLOSE_ISO, MOCK_DRAWS, MOCK_POT_LAMPORTS } from "../lib/mock-draw"
 
 export default function HomePage() {
   const open = MOCK_DRAWS.find((draw) => draw.status === "open");
-  const entrants = open?.entrants.length ?? 0;
+  const entries = open?.entrants.reduce((sum, entrant) => sum + entrant.entryCount, 0) ?? 0;
 
   return (
     <div className="space-y-10">
@@ -31,19 +31,18 @@ export default function HomePage() {
           </p>
         </article>
         <article className="border border-line bg-panel px-4 py-5">
-          <p className="text-xs uppercase tracking-wider text-muted">Entrants</p>
-          <p className="mt-2 font-mono text-2xl">{entrants}</p>
+          <p className="text-xs uppercase tracking-wider text-muted">Entries</p>
+          <p className="mt-2 font-mono text-2xl">{entries}</p>
         </article>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-xl">How to enter</h2>
         <ol className="list-decimal space-y-2 pl-5 text-muted">
-          <li>Buy at least $5 of $DRAW through fomo during the window.</li>
-          <li>Post a thesis on $DRAW in fomo. Length does not matter.</li>
-          <li>Still hold $DRAW when the window snapshots.</li>
+          <li>Hold at least $5 of $DRAW at the snapshot and post a thesis on it. That is one entry.</li>
+          <li>Buy at least $5 more during the window for two bonus entries.</li>
         </ol>
-        <p className="text-sm text-muted">One entry per fomo account. An X account is not required.</p>
+        <p className="text-sm text-muted">One fomo account. A window buy does not qualify anyone by itself. An X account is not required.</p>
         <div className="flex gap-3">
           <Link href="/check" className="inline-block border border-accent px-4 py-2 text-sm text-accent">
             Check a wallet

@@ -76,21 +76,21 @@ create table entries (
   fomo_handle text,
   eligible boolean not null,
   fail_reason text,
+  entry_count integer not null,
   leaf_index integer,
   primary key (draw_id, wallet),
   check (
-    (eligible = true and fail_reason is null)
-    or (eligible = false and fail_reason is not null)
+    (eligible = true and fail_reason is null and entry_count >= 1)
+    or (eligible = false and fail_reason is not null and entry_count = 0)
   ),
   check (
     fail_reason is null
     or fail_reason in (
       'unresolved_identity',
       'duplicate_fomo_account',
-      'no_buy_in_window',
-      'below_min_buy',
       'no_thesis',
-      'not_holding'
+      'not_holding',
+      'below_min_hold'
     )
   ),
   check (leaf_index is null or leaf_index >= 0)
