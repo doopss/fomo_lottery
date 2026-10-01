@@ -9,6 +9,7 @@
     "build": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker build && corepack pnpm --filter @draw/web build",
     "test": "corepack pnpm --filter @draw/shared test",
     "dev": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/web dev",
-    "validate-identities": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker validate-identities"
+    "validate-identities": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker validate-identities",
+    "close-window": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker close-window"
   }
 }

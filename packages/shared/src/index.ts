@@ -29,5 +29,12 @@ export type {
   FailReason,
 } from "./rules.js";
 
+export { parseHoldersPage, solanaWallet, thesisText } from "./holders.js";
+export type { FomoHolder, HoldersPage } from "./holders.js";
+export { usdToCents } from "./money.js";
+export { parseTokenBalance } from "./rpc-balance.js";
+export { MAX_SNAPSHOT_AGE_SECONDS, closeHolderSnapshot } from "./snapshot.js";
+export type { CloseSnapshot, SnapshotRow } from "./snapshot.js";
+
 export { buildMerkleTree, entryLeafPreimage, verifyProof, winnerIndex } from "./merkle.js";
 export type { MerkleEntrant, MerkleLeaf, MerkleProof, MerkleTreeResult } from "./merkle.js";

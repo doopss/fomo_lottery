@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=../../.env dist/src/index.js",
-    "validate-identities": "tsc -p tsconfig.json && node --env-file-if-exists=../../.env dist/scripts/validate-identities.js"
+    "validate-identities": "tsc -p tsconfig.json && node --env-file-if-exists=../../.env dist/scripts/validate-identities.js",
+    "close-window": "tsc -p tsconfig.json && node --env-file-if-exists=../../.env dist/scripts/close-window.js"
   },
   "dependencies": {
     "@draw/shared": "workspace:*"
