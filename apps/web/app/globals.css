@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(ellipse at top, rgba(226, 162, 59, 0.08), transparent 42%),
+    #16130e;
+  color: #f3ecdf;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}

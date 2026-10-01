@@ -1,0 +1,14 @@
+{
+  "name": "draw",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker build && corepack pnpm --filter @draw/web build",
+    "test": "corepack pnpm --filter @draw/shared test",
+    "dev": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/web dev",
+    "validate-identities": "corepack pnpm --filter @draw/shared build && corepack pnpm --filter @draw/worker validate-identities"
+  }
+}
