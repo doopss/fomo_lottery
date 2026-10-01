@@ -1,16 +1,25 @@
 import {
   closeHolderSnapshot,
   fomoApiConfigFromEnv,
+  lamportsToUsdCents,
+  parseBinanceSolPrice,
+  parseCoinbaseSolPrice,
   parseHoldersPage,
   parseTokenBalance,
+  readSwapPage,
+  swapsByWallet,
   type CloseSnapshot,
+  type DrawWindow,
   type HoldersPage,
+  type ParsedWindowSwap,
 } from "@draw/shared";
 
-import { saveClosedSnapshot } from "../src/persist-snapshot.js";
+import { saveClosedSnapshot, type StoredSwap } from "../src/persist-snapshot.js";
 import { readWindowHours, windowAt } from "../src/scheduler.js";
 
 const HOLDER_LIMIT = 500;
+const SWAP_PAGE_LIMIT = 100;
+const MAX_SWAP_PAGES = 40;
 
 export function formatCents(cents: number): string {
   const dollars = Math.floor(cents / 100);
@@ -156,6 +165,94 @@ function renderSnapshot(snapshot: CloseSnapshot, blockers: string[]): string {
   return lines.join("\n");
 }
 
+async function fetchWindowSwaps(input: {
+  apiKey: string;
+  mint: string;
+  window: DrawWindow;
+  fetchImpl?: typeof fetch;
+}): Promise<{ swaps: ParsedWindowSwap[]; complete: boolean }> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const swaps: ParsedWindowSwap[] = [];
+  let before: string | undefined;
+  let rateLimitRetries = 0;
+  for (let page = 0; page < MAX_SWAP_PAGES; page += 1) {
+    const url = new URL(`https://api.helius.xyz/v0/addresses/${input.mint}/transactions`);
+    url.searchParams.set("api-key", input.apiKey);
+    url.searchParams.set("type", "SWAP");
+    url.searchParams.set("limit", String(SWAP_PAGE_LIMIT));
+    if (before !== undefined) {
+      url.searchParams.set("before", before);
+    }
+    const response = await fetchImpl(url, { method: "GET", headers: { accept: "application/json" } });
+    if (response.status === 429) {
+      rateLimitRetries += 1;
+      if (rateLimitRetries > 4) {
+        throw new Error("helius swaps: 429");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * rateLimitRetries));
+      page -= 1;
+      continue;
+    }
+    rateLimitRetries = 0;
+    if (!response.ok) {
+      throw new Error(`helius swaps: ${response.status}`);
+    }
+    const parsed = readSwapPage(await response.json(), input.mint, input.window);
+    swaps.push(...parsed.swaps);
+    const done =
+      parsed.count === 0 ||
+      parsed.reachedBeforeWindow ||
+      parsed.count < SWAP_PAGE_LIMIT ||
+      parsed.lastSignature === null;
+    if (done) {
+      return { swaps: uniqueSwaps(swaps), complete: true };
+    }
+    before = parsed.lastSignature ?? undefined;
+    if (page + 1 === MAX_SWAP_PAGES) {
+      return { swaps: uniqueSwaps(swaps), complete: false };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return { swaps: uniqueSwaps(swaps), complete: false };
+}
+
+function uniqueSwaps(swaps: ParsedWindowSwap[]): ParsedWindowSwap[] {
+  const bySignature = new Map<string, ParsedWindowSwap>();
+  for (const swap of swaps) {
+    bySignature.set(swap.signature, swap);
+  }
+  return [...bySignature.values()];
+}
+
+async function fetchSolUsdCents(fetchImpl: typeof fetch = fetch): Promise<number> {
+  const coinbase = await fetchImpl("https://api.coinbase.com/v2/prices/SOL-USD/spot", {
+    headers: { accept: "application/json" },
+  });
+  if (coinbase.ok) {
+    return parseCoinbaseSolPrice(await coinbase.json());
+  }
+  const binance = await fetchImpl("https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT", {
+    headers: { accept: "application/json" },
+  });
+  if (!binance.ok) {
+    throw new Error(`sol price: coinbase ${coinbase.status}, binance ${binance.status}`);
+  }
+  return parseBinanceSolPrice(await binance.json());
+}
+
+function storedSwaps(swaps: readonly ParsedWindowSwap[], solUsdCents: number): StoredSwap[] {
+  return swaps.map((swap) => ({
+    signature: swap.signature,
+    wallet: swap.wallet,
+    side: swap.side,
+    tokenAmount: swap.tokenAmount,
+    solLamports: swap.solLamports,
+    usdValueCents: lamportsToUsdCents(swap.solLamports, solUsdCents),
+    slot: swap.slot,
+    blockTime: swap.blockTime,
+  }));
+}
+
 async function main(): Promise<void> {
   const config = fomoApiConfigFromEnv();
   const now = new Date();
@@ -171,14 +268,44 @@ async function main(): Promise<void> {
   ];
   const confirmedBalances =
     rpcUrl.length > 0 ? await confirmBalances({ rpcUrl, mint: config.tokenMint, wallets }) : undefined;
-  const snapshot = closeHolderSnapshot({ page, window, observedAt, confirmedBalances });
-  const blockers = [...snapshot.publishBlockers];
+  const heliusApiKey = process.env.HELIUS_API_KEY?.trim() ?? "";
+  const blockers: string[] = [];
+  let pricedSwaps: StoredSwap[] = [];
+  let windowSwaps: ReturnType<typeof swapsByWallet> | undefined;
+  if (heliusApiKey.length === 0) {
+    blockers.push("HELIUS_API_KEY is not set");
+  } else {
+    const fetched = await fetchWindowSwaps({ apiKey: heliusApiKey, mint: config.tokenMint, window });
+    if (!fetched.complete) {
+      blockers.push("window swap history is incomplete");
+    }
+    if (fetched.swaps.length === 0) {
+      windowSwaps = new Map();
+    } else {
+      try {
+        const solUsdCents = await fetchSolUsdCents();
+        pricedSwaps = storedSwaps(fetched.swaps, solUsdCents);
+        windowSwaps = swapsByWallet(fetched.swaps, solUsdCents);
+        const dollars = Math.floor(solUsdCents / 100);
+        const remainder = solUsdCents % 100;
+        console.log(
+          `sol spot $${dollars}.${remainder.toString().padStart(2, "0")} across ${fetched.swaps.length} swaps`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "sol price failed";
+        blockers.push(message);
+      }
+    }
+  }
+  const snapshot = closeHolderSnapshot({ page, window, observedAt, confirmedBalances, windowSwaps });
+  blockers.push(...snapshot.publishBlockers);
   if (databaseUrl.length === 0) {
     blockers.push("DATABASE_URL is not set");
   }
+  const bonusWallets = snapshot.rows.filter((row) => row.result.bonusApplied).length;
   console.log(`window ${window.start.toISOString()} -> ${window.end.toISOString()}`);
   console.log(renderSnapshot(snapshot, blockers));
-  console.log("bonus entries: not applied (window buys are the next step)");
+  console.log(`bonus entries: ${bonusWallets}`);
   if (blockers.length > 0 || databaseUrl.length === 0) {
     console.log("no rows written");
     return;
@@ -190,9 +317,12 @@ async function main(): Promise<void> {
     window,
     snapshot,
     sourceUrl,
+    swaps: pricedSwaps,
   });
   const verb = saved.replaced ? "updated" : "wrote";
-  console.log(`${verb} draw ${saved.drawId} (${saved.status}): ${saved.entries} rows, ${saved.entrantCount} entries`);
+  console.log(
+    `${verb} draw ${saved.drawId} (${saved.status}): ${saved.entries} rows, ${saved.entrantCount} entries, ${saved.swapCount} swaps`,
+  );
 }
 
 const isDirectRun = process.argv[1]?.includes("close-window") === true;

@@ -6,6 +6,7 @@ import {
   type DrawWindow,
   type EligibilityConfig,
   type EligibilityResult,
+  type EligibilitySwap,
 } from "./rules.js";
 
 /** Holder lists older than this are not a close. Two minutes. */
@@ -50,7 +51,8 @@ interface Candidate {
  * Same Solana wallet on two handles collapses to one row and sets
  * shared_funding_source. Identical thesis text is a flag, not a failure.
  *
- * Window buys are ignored here. Bonus entries are a later step.
+ * Window buys add bonus entries. Sells do not. A missing swap map means
+ * buys were not checked and no bonus is applied.
  * A non-empty thesis string is dated at the snapshot time, clamped to the
  * window end so a late read does not masquerade as "no thesis". Publishing
  * is blocked when that snapshot was not taken inside the window.
@@ -60,6 +62,8 @@ export function closeHolderSnapshot(input: {
   window: DrawWindow;
   observedAt: Date;
   confirmedBalances?: ReadonlyMap<string, bigint>;
+  /** Wallet to in-window swaps. Omit when buys were not loaded. */
+  windowSwaps?: ReadonlyMap<string, readonly EligibilitySwap[]>;
   config?: EligibilityConfig;
 }): CloseSnapshot {
   const config = input.config ?? defaultEligibilityConfig;
@@ -84,7 +88,7 @@ export function closeHolderSnapshot(input: {
             candidate.thesisText === null
               ? null
               : { text: candidate.thesisText, postedAt: thesisPostedAt },
-          swaps: [],
+          swaps: [...(input.windowSwaps?.get(candidate.wallet) ?? [])],
           balanceRaw,
           holdingValueUsdCents,
           sharedFundingSource: candidate.sharedFundingSource,

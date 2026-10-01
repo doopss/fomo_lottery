@@ -9,11 +9,23 @@ import type { DrawWindowSpan } from "./scheduler.js";
 
 const LOCKED_STATUSES = new Set(["committed", "randomized", "settled", "rolled_over"]);
 
+export interface StoredSwap {
+  signature: string;
+  wallet: string;
+  side: "buy" | "sell";
+  tokenAmount: bigint;
+  solLamports: bigint;
+  usdValueCents: number;
+  slot: number;
+  blockTime: Date;
+}
+
 export interface SavedSnapshot {
   drawId: string;
   status: "open" | "closed";
   entries: number;
   entrantCount: number;
+  swapCount: number;
   replaced: boolean;
 }
 
@@ -23,6 +35,7 @@ export async function saveClosedSnapshot(input: {
   window: DrawWindowSpan;
   snapshot: CloseSnapshot;
   sourceUrl: string;
+  swaps: readonly StoredSwap[];
 }): Promise<SavedSnapshot> {
   const client = new Client({
     connectionString: connectionStringFor(input.databaseUrl),
@@ -99,6 +112,7 @@ async function writeSnapshot(
     window: DrawWindowSpan;
     snapshot: CloseSnapshot;
     sourceUrl: string;
+    swaps: readonly StoredSwap[];
   },
 ): Promise<SavedSnapshot> {
   const existing = await client.query<{ id: string; status: string }>(
@@ -216,11 +230,39 @@ async function writeSnapshot(
     }
   }
 
+  for (const swap of input.swaps) {
+    await client.query(
+      `insert into swaps (
+         signature, wallet, side, token_amount, sol_value, usd_value, slot, block_time, via_fomo
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, false)
+       on conflict (signature) do update set
+         wallet = excluded.wallet,
+         side = excluded.side,
+         token_amount = excluded.token_amount,
+         sol_value = excluded.sol_value,
+         usd_value = excluded.usd_value,
+         slot = excluded.slot,
+         block_time = excluded.block_time,
+         via_fomo = excluded.via_fomo`,
+      [
+        swap.signature,
+        swap.wallet,
+        swap.side,
+        swap.tokenAmount.toString(),
+        swap.solLamports.toString(),
+        swap.usdValueCents,
+        swap.slot,
+        swap.blockTime.toISOString(),
+      ],
+    );
+  }
+
   return {
     drawId,
     status,
     entries: input.snapshot.rows.length,
     entrantCount,
+    swapCount: input.swaps.length,
     replaced,
   };
 }

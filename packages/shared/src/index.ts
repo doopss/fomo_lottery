@@ -33,6 +33,19 @@ export { parseHoldersPage, solanaWallet, thesisText } from "./holders.js";
 export type { FomoHolder, HoldersPage } from "./holders.js";
 export { usdToCents } from "./money.js";
 export { parseTokenBalance } from "./rpc-balance.js";
+export {
+  WSOL_MINT,
+  lamportsToUsdCents,
+  parseBinanceSolPrice,
+  parseCoinbaseSolPrice,
+  parseEnhancedSwap,
+  priceWindowSwap,
+  readSwapPage,
+  swapsByWallet,
+  uiSolToLamports,
+  usdPriceToCents,
+} from "./swaps.js";
+export type { EnhancedSwapTransaction, ParsedWindowSwap, SwapPage } from "./swaps.js";
 export { MAX_SNAPSHOT_AGE_SECONDS, closeHolderSnapshot } from "./snapshot.js";
 export type { CloseSnapshot, SnapshotRow } from "./snapshot.js";
 
