@@ -190,6 +190,29 @@ describe("closeHolderSnapshot", () => {
     expect(snapshot.publishable).toBe(true);
   });
 
+  it("accepts a live holder list that omits stale and age", () => {
+    const snapshot = closeHolderSnapshot({
+      page: page({ ageSeconds: undefined, stale: undefined, source: "live-fomo" }),
+      window,
+      observedAt,
+      confirmedBalances: new Map([["Wa11etAaa", 5n]]),
+    });
+    expect(snapshot.stale).toBe(false);
+    expect(snapshot.publishable).toBe(true);
+    expect(snapshot.publishBlockers).toEqual([]);
+  });
+
+  it("refuses a holder list marked stale in the source name", () => {
+    const snapshot = closeHolderSnapshot({
+      page: page({ source: "live-fomo-stale", stale: undefined, ageSeconds: undefined }),
+      window,
+      observedAt,
+      confirmedBalances: new Map([["Wa11etAaa", 5n]]),
+    });
+    expect(snapshot.publishable).toBe(false);
+    expect(snapshot.publishBlockers).toContain("holder list is stale");
+  });
+
   it("refuses a stale holder list that was captured outside the window", () => {
     const snapshot = closeHolderSnapshot({
       page: page({ stale: true, ageSeconds: 4000 }),

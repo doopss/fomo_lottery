@@ -7,6 +7,7 @@ import {
   type HoldersPage,
 } from "@draw/shared";
 
+import { saveClosedSnapshot } from "../src/persist-snapshot.js";
 import { readWindowHours, windowAt } from "../src/scheduler.js";
 
 const HOLDER_LIMIT = 500;
@@ -178,7 +179,20 @@ async function main(): Promise<void> {
   console.log(`window ${window.start.toISOString()} -> ${window.end.toISOString()}`);
   console.log(renderSnapshot(snapshot, blockers));
   console.log("bonus entries: not applied (window buys are the next step)");
-  console.log("no rows written");
+  if (blockers.length > 0 || databaseUrl.length === 0) {
+    console.log("no rows written");
+    return;
+  }
+  const sourceUrl = `${config.baseUrl}/token/${encodeURIComponent(config.tokenMint)}/holders?limit=${HOLDER_LIMIT}`;
+  const saved = await saveClosedSnapshot({
+    databaseUrl,
+    tokenMint: config.tokenMint,
+    window,
+    snapshot,
+    sourceUrl,
+  });
+  const verb = saved.replaced ? "updated" : "wrote";
+  console.log(`${verb} draw ${saved.drawId} (${saved.status}): ${saved.entries} rows, ${saved.entrantCount} entries`);
 }
 
 const isDirectRun = process.argv[1]?.includes("close-window") === true;

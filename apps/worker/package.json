@@ -10,10 +10,12 @@
     "close-window": "tsc -p tsconfig.json && node --env-file-if-exists=../../.env dist/scripts/close-window.js"
   },
   "dependencies": {
-    "@draw/shared": "workspace:*"
+    "@draw/shared": "workspace:*",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.8.2"
   }
 }

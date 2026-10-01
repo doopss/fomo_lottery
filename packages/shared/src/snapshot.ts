@@ -117,7 +117,7 @@ export function closeHolderSnapshot(input: {
   return {
     observedAt: input.observedAt,
     source: input.page.source ?? null,
-    stale: input.page.stale === true,
+    stale: listIsStale(input.page),
     ageSeconds: input.page.ageSeconds ?? null,
     totalHolders: input.page.totalHolders ?? null,
     trackedHolders: input.page.holders.length,
@@ -217,13 +217,21 @@ function normalizeThesis(text: string): string {
   return text.trim().toLowerCase();
 }
 
+function listIsStale(page: HoldersPage): boolean {
+  return page.stale === true || (page.source?.includes("stale") ?? false);
+}
+
 function freshnessBlockers(page: HoldersPage, window: DrawWindow, observedAt: Date): string[] {
   const blockers: string[] = [];
-  if (page.stale === true) {
+  const stale = listIsStale(page);
+  if (stale) {
     blockers.push("holder list is stale");
   }
+  // A live-fomo payload omits both stale and ageSeconds. That list is current.
   if (page.ageSeconds === undefined) {
-    blockers.push("holder list age is unknown");
+    if (stale || page.source !== "live-fomo") {
+      blockers.push("holder list age is unknown");
+    }
   } else if (page.ageSeconds > MAX_SNAPSHOT_AGE_SECONDS) {
     blockers.push(`holder list is older than ${MAX_SNAPSHOT_AGE_SECONDS} seconds`);
   }
